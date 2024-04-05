@@ -1,11 +1,14 @@
 "use client";
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import React from "react";
 import { ToastFailure, ToastSuccess } from "./components/ToastContainer";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+
+import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
+
 import {
   Form,
   FormControl,
@@ -21,6 +24,8 @@ const formSchema = z.object({
 });
 const Page = () => {
   // 1. Define your form.
+  const { executeRecaptcha } = useGoogleReCaptcha();
+  const [loading, SetLoading] = useState(false);
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -28,32 +33,39 @@ const Page = () => {
     },
   });
   // 2. Define a submit handler.
-  async function onSubmit(values: z.infer<typeof formSchema>, e: any) {
-    e.preventDefault();
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!executeRecaptcha) {
+      console.log("not available to execute recaptcha");
+      return ToastFailure({ message: "Recaptcha not available" });
+    }
+    SetLoading(true);
+    const gRecaptchaToken = await executeRecaptcha("inquirySubmit");
     try {
       const response = await fetch("api/getTestToken", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ values }),
+        body: JSON.stringify({ values, token: gRecaptchaToken }),
       });
-      if (!response.ok) {
-        ToastFailure({ message: `Error: ${response.statusText}` });
-      }
-
       const data = await response.json();
-      ToastSuccess({
+      if (!response.ok) {
+        SetLoading(false);
+        return ToastFailure({ message: `Error: ${data.error}` });
+      }
+      SetLoading(false);
+      return ToastSuccess({
         message: `Funds sent successfully. TXID: ${data.txnHash}`,
       });
     } catch (error) {
       console.log(error);
+      SetLoading(false);
       if (error instanceof Error) {
         ToastFailure({ message: `Error: ${error.message}` });
       }
     }
   }
-  const getFunds = async (e: any) => {};
+
   return (
     <div className="">
       <div className="flex flex-col items-center">
@@ -78,7 +90,14 @@ const Page = () => {
                 </FormItem>
               )}
             />
-            <Button type="submit">Get Sepolia ETH</Button>
+            {loading && (
+              <p className="text-2xl font-bold text-blue-400">
+                Sending transation...
+              </p>
+            )}
+            <Button type="submit" disabled={loading}>
+              Get Sepolia ETH
+            </Button>
           </form>
         </Form>
       </div>
